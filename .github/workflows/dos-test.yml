@@ -1,13 +1,13 @@
 name: Tor's Hammer DoS Test
 
 on:
-  push:  # Or: pull_request, schedule: '0 0 * * 0' for weekly
+  push:
     branches: [ main ]
-  workflow_dispatch:  # Manual trigger from GitHub UI
+  workflow_dispatch:  # Allows manual trigger from GitHub UI
 
 jobs:
   test:
-    runs-on: ubuntu-latest  # Free VM with Python pre-installed
+    runs-on: ubuntu-latest
 
     steps:
     - name: Checkout code
@@ -21,26 +21,31 @@ jobs:
     - name: Install dependencies
       run: |
         pip install pysocks requests
-        sudo apt update && sudo apt install -y tor  # For -T flag (optional)
+        sudo apt-get update
+        sudo apt-get install -y tor
 
-    - name: Start Tor (if using anonymity)
+    - name: Start Tor (for anonymity)
       run: |
-        sudo systemctl start tor
-        # Wait a sec for Tor to init
-        sleep 5
+        sudo service tor start
+        sleep 5  # Wait for Tor to initialize
 
     - name: Run Tor's Hammer
       run: |
-        # Replace with YOUR test target (e.g., your dev server IP/domain)
-        python3 torshammer.py -s study.mnr.world -p 80 -r 200 -T  # -T for Tor
-        # Or local test: python3 torshammer.py -s 127.0.0.1 -p 8000 -r 100
+        # IMPORTANT: Replace with YOUR OWN test target (e.g., localhost or a dev server you control)
+        # Example for local test (start a server in the VM):
+        python3 -m http.server 8000 --bind 127.0.0.1 &
+        sleep 2  # Give server time to start
+        python3 torshammer.py -s 127.0.0.1 -p 8000 -r 100  # No -T for simplicity in VM
+        # For external: python3 torshammer.py -s ${{ secrets.TEST_TARGET }} -p 80 -r 200 -T
       env:
-        # Optional: Pass secrets if needed (e.g., for auth targets)
-        TARGET_HOST: ${{ secrets.TEST_TARGET }}  # Store in repo Settings > Secrets
+        TARGET: ${{ secrets.TEST_TARGET }}  # Optional: Set in Repo Settings > Secrets
 
-    - name: Upload logs (if it generates any)
-      uses: actions/upload-artifact@v4
+    - name: Upload logs as artifact (if generated)
       if: always()
+      uses: actions/upload-artifact@v4
       with:
         name: dos-logs
-        path: *.log  # Adjust if tool outputs logs
+        path: |
+          *.log
+          torshammer*.out  # Adjust based on tool's output files
+        retention-days: 1  # Keep short for temp tests
